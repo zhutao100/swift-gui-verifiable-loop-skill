@@ -23,39 +23,42 @@ Symptoms in `.xcresult` / `xcodebuild`:
 
 Agent policy:
 
-1. Keep the failed `.xcresult` and exported diagnostics.
-2. Capture the responsible TCC attribution chain while reproducing the prompt:
+1.  Keep the failed `.xcresult` and exported diagnostics.
 
-   ```bash
-   scripts/macos/tcc_attribution_tail.sh \
-     --duration 45 \
-     --out .artifacts/tcc-attribution.log
-   ```
+2.  Capture the responsible TCC attribution chain while reproducing the prompt:
 
-3. Print identities for candidate executables/apps before authoring PPPC:
+    ``` bash
+    scripts/macos/tcc_attribution_tail.sh \
+      --duration 45 \
+      --out .artifacts/tcc-attribution.log
+    ```
 
-   ```bash
-   scripts/macos/collect_tcc_identities.sh \
-     /Applications/Xcode.app \
-     /Applications/Utilities/Terminal.app
-   ```
+3.  Print identities for candidate executables/apps before authoring PPPC:
 
-4. Try the least-invasive local mitigations once:
-   - `--adhoc-signing`
-   - `--reuse-build --derived-data /tmp/<name>/DerivedData`
-5. If the same prompt/timeout repeats, stop retrying the UI-test loop and report that a human or device-management policy must approve the permission.
+    ``` bash
+    scripts/macos/collect_tcc_identities.sh \
+      /Applications/Xcode.app \
+      /Applications/Utilities/Terminal.app
+    ```
+
+4.  Try the least-invasive local mitigations once:
+
+    - `--adhoc-signing`
+    - `--reuse-build --derived-data /tmp/<name>/DerivedData`
+
+5.  If the same prompt/timeout repeats, stop retrying the UI-test loop and report that a human or device-management policy must approve the permission.
 
 ## PPPC / MDM option for managed machines
 
 For managed macOS machines, a Privacy Preferences Policy Control (PPPC) payload can preconfigure privacy classes for specific apps/binaries. Use MDM or your organization’s PPPC tooling; this skill includes only a template:
 
-```bash
+``` bash
 cp assets/templates/PPPC-UI-Testing.mobileconfig.template /tmp/PPPC-UI-Testing.mobileconfig
 ```
 
 Then replace placeholders with values collected from:
 
-```bash
+``` bash
 scripts/macos/tcc_attribution_tail.sh --duration 45 --out .artifacts/tcc.log
 scripts/macos/collect_tcc_identities.sh /path/to/responsible.app-or-binary
 ```
@@ -68,25 +71,45 @@ Important caveats:
 
 ## Disposable VM option for unattended agents
 
-For unmanaged developer Macs, a prepared disposable macOS VM is the practical
-agent-safe path when no human can approve prompts during the run. If the
-`ghostvm-safe-testing` skill is installed, prepare a VM snapshot for Xcode UI
-testing and run this skill's `scripts/ui/ui_loop.sh` inside that guest.
+For unmanaged developer Macs, a prepared disposable macOS VM is the practical agent-safe path when no human can approve prompts during the run. If the `ghostvm-safe-testing` skill is installed, prepare a VM snapshot for Xcode UI testing and run this skill's `scripts/ui/ui_loop.sh` inside that guest.
 
 Expected preparation contract:
 
 - a clean base snapshot is reverted before each run
 - the guest has Xcode installed and first-launch setup completed
-- Xcode UI testing bootstrap has enabled Automation Mode without per-run
-  authentication
-- TCC rows are seeded for GhostTools plus Xcode/XCTest candidates such as Xcode,
-  Xcode Helper, `xcodebuild`, and `xcrun`
-- host project inputs are mounted read-only and evidence/artifacts are exported
-  through a dedicated writable share
+- Xcode UI testing bootstrap has enabled Automation Mode without per-run authentication
+- TCC rows are seeded for GhostTools plus Xcode/XCTest candidates such as Xcode, Xcode Helper, `xcodebuild`, and `xcrun`
+- host project inputs are mounted read-only and evidence/artifacts are exported through a dedicated writable share
 
-This does not change the policy for a real host: do not loop on an interactive
-password prompt there. Move the test to a prepared VM, use PPPC/MDM, or ask the
-permission owner to approve the gate.
+This does not change the policy for a real host: do not loop on an interactive password prompt there. Move the test to a prepared VM, use PPPC/MDM, or ask the permission owner to approve the gate.
+
+## UI test runner sandbox constraints
+
+Some macOS Xcode UI test runners execute the test bundle with App Sandbox-style constraints even when the app under test is not sandboxed. Symptoms include:
+
+- `xcrun: error: cannot be used within an App Sandbox.`
+- a UI test helper failing while it tries to run `swift build`
+- socket `bind` failures while probing for an available loopback port
+- shell environment variables set for `xcodebuild` not appearing in the UI test process
+
+Agent policy:
+
+1.  Keep build and environment setup outside XCTest code. Run `swift build`, prepare helper binaries, and choose any required ports in the guest shell or CI step before `xcodebuild test`.
+2.  Pass immutable handoff values through the app launch environment when it is available to the test process.
+3.  If environment inheritance is unreliable, write small deterministic handoff files in the disposable checkout, such as `.ui-test-daemon-path` and `.ui-test-listen-port`, and have the test read those before falling back to local discovery.
+4.  Do not commit those handoff files; add them to the project ignore rules.
+
+This keeps the XCUITest body focused on UI assertions and avoids treating runner sandbox policy as product behavior.
+
+## SwiftUI text assertions on macOS
+
+SwiftUI `Text` exposed as `XCUIElementTypeStaticText` may surface visible text as the element `value` rather than `label`. When waiting for status or health text, prefer predicates that accept either field:
+
+``` swift
+let predicate = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", text, text)
+```
+
+Keep stable accessibility identifiers for actionable controls and important status surfaces, but do not assume identifier presence implies the text is in `label`.
 
 ## Gatekeeper / syspolicyd symptoms (macOS 15+)
 
@@ -97,9 +120,9 @@ You may see UI test failures like:
 
 Practical policy:
 
-1. Keep the `.xcresult` bundle.
-2. Export attachments/diagnostics (`scripts/ui/xcresult_export.sh`) and inspect them.
-3. If you need deeper OS evidence, capture a `syspolicyd` log slice around the run window.
+1.  Keep the `.xcresult` bundle.
+2.  Export attachments/diagnostics (`scripts/ui/xcresult_export.sh`) and inspect them.
+3.  If you need deeper OS evidence, capture a `syspolicyd` log slice around the run window.
 
 Do not rely on `spctl --assess` as the only oracle in this workflow; it can be noisy for Xcode-built products and UI test runners.
 
@@ -109,10 +132,10 @@ Headless CI runners generally cannot click permission prompts.
 
 Practical options:
 
-1. Prefer snapshots + unit tests in CI, and run macOS UI tests only on prepared developer or self-hosted machines.
-2. Use MDM-managed self-hosted macOS runners with PPPC where organizationally appropriate.
-3. Use a dedicated clean login session, clean desktop, or disposable VM so any accidental full-screen screenshot contains no user data.
-4. Treat macOS UI smoke tests as an outer-loop gate, not the only proof of correctness.
+1.  Prefer snapshots + unit tests in CI, and run macOS UI tests only on prepared developer or self-hosted machines.
+2.  Use MDM-managed self-hosted macOS runners with PPPC where organizationally appropriate.
+3.  Use a dedicated clean login session, clean desktop, or disposable VM so any accidental full-screen screenshot contains no user data.
+4.  Treat macOS UI smoke tests as an outer-loop gate, not the only proof of correctness.
 
 ## Evidence capture still applies
 

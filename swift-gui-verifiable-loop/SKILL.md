@@ -11,7 +11,7 @@ compatibility: |
   - Xcode CLI tools: xcodebuild, xcrun/xcresulttool (Xcode 16+ recommended; Xcode 15+ required for accessibility audits).
   - Network recommended for fetching Swift packages and documentation.
 metadata:
-  version: "1.2"
+  version: "1.3"
   tags: swift swiftui appkit uikit xcodebuild xcresult xcresulttool snapshot-testing xctest xcuittest accessibility audit agentic macos ios
 ---
 
@@ -146,6 +146,11 @@ If you prefer manual commands, see `references/xcresult-bundles.md`.
 ## Platform notes (read once)
 
 - macOS UI tests may require Accessibility/Automation permissions for the UI test runner. See `references/macos-ui-testing-permissions.md`.
+- macOS UI test bundles can run with App Sandbox restrictions. Do not rely on
+  XCTest code to invoke `xcrun`, build helper tools, or bind sockets for free
+  port discovery. Prebuild helpers and allocate ports before `xcodebuild test`,
+  then pass them through app launch environment or deterministic files in the
+  disposable checkout.
 - For unattended agent runs, prefer a prepared disposable macOS VM when available
   (for example a GhostVM `xcode-ui-ready` snapshot) over repeatedly running on a
   real host that still needs interactive approval.
@@ -194,6 +199,10 @@ UI tests are valuable, but operationally fragile. Use them as *proof-of-life* fl
 - document/window creation
 - settings toggle persists after relaunch
 - menu bar extra popover/context menu via a deterministic launch harness when direct `NSStatusItem` clicks are not hittable under XCUITest
+
+macOS SwiftUI accessibility note: `StaticText` content may be exposed through
+`value` instead of `label`. Predicate waits for status text should accept either
+property, for example `label CONTAINS %@ OR value CONTAINS %@`.
 
 Templates:
 
